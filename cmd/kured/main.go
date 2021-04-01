@@ -29,7 +29,6 @@ import (
 	"github.com/weaveworks/kured/pkg/alerts"
 	"github.com/weaveworks/kured/pkg/daemonsetlock"
 	"github.com/weaveworks/kured/pkg/delaytick"
-	"github.com/weaveworks/kured/pkg/notifications/slack"
 	"github.com/weaveworks/kured/pkg/taints"
 	"github.com/weaveworks/kured/pkg/timewindow"
 )
@@ -166,12 +165,20 @@ func main() {
 func flagCheck(cmd *cobra.Command, args []string) {
 	if slackHookURL != "" && notifyURL != "" {
 		log.Warnf("Cannot use both --notify-url and --slack-hook-url flags. Kured will use --notify-url flag only...")
-		slackHookURL = ""
-	}
-	if slackChannel != "" || slackHookURL != "" || slackUsername != "" {
-		log.Warnf("Deprecated flag(s). Please use --notify-url flag instead.")
 	}
 
+	if slackHookURL != "" {
+		log.Warnf("Deprecated flag(s). Please use --notify-url flag instead.")
+		tmpsplit := strings.Split(slackHookURL, "/")
+		if len(tmpsplit) < 4 {
+			log.Warnf("slack-hook-url is not properly formatted...\nno notification will be sent.")
+		} else {
+			tokenA := tmpsplit[len(tmpsplit)-3]
+			tokenB := tmpsplit[len(tmpsplit)-2]
+			tokenC := tmpsplit[len(tmpsplit)-1]
+			notifyURL = fmt.Sprintf("slack://%s/%s/%s", tokenA, tokenB, tokenC)
+		}
+	}
 }
 
 // newCommand creates a new Command with stdout/stderr wired to our standard logger
@@ -342,11 +349,6 @@ func drain(client *kubernetes.Clientset, node *v1.Node) {
 
 	log.Infof("Draining node %s", nodename)
 
-	if slackHookURL != "" {
-		if err := slack.NotifyDrain(slackHookURL, slackUsername, slackChannel, messageTemplateDrain, nodename); err != nil {
-			log.Warnf("Error notifying slack: %v", err)
-		}
-	}
 	if notifyURL != "" {
 		if err := shoutrrr.Send(notifyURL, fmt.Sprintf(messageTemplateDrain, nodename)); err != nil {
 			log.Warnf("Error notifying: %v", err)
@@ -398,12 +400,6 @@ func uncordon(client *kubernetes.Clientset, node *v1.Node) {
 
 func invokeReboot(nodeID string, rebootCommand []string) {
 	log.Infof("Running command: %s for node: %s", rebootCommand, nodeID)
-
-	if slackHookURL != "" {
-		if err := slack.NotifyReboot(slackHookURL, slackUsername, slackChannel, messageTemplateReboot, nodeID); err != nil {
-			log.Warnf("Error notifying slack: %v", err)
-		}
-	}
 
 	if notifyURL != "" {
 		if err := shoutrrr.Send(notifyURL, fmt.Sprintf(messageTemplateReboot, nodeID)); err != nil {
